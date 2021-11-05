@@ -4,7 +4,7 @@ import ray
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 import time
-from numpy import transpose,array,arange,concatenate,eye,unique,dot,empty,append,ones
+from numpy import transpose,array,arange,concatenate,eye,unique,dot,zeros,append,ones
 import numpy as np
 from numpy.linalg import norm
 from .cluster import Cluster
@@ -25,7 +25,6 @@ class Clusterer:
         self.init_cluster_length = init_cluster_length
         self.coefs = coefs
         self.max_iter = max_iter
-        ray.init(log_to_driver=False)
  
     def merge(self):
  
@@ -145,7 +144,7 @@ class Clusterer:
  
     @ray.remote
     def parallel_connectivity_matrix(self,clusters ,rows):
-        new_graph=empty((len(rows),len(clusters)))
+        new_graph=zeros((len(rows),len(clusters)))
         for i in range(len(rows)):
             for j in range(rows[i],len(clusters)):
                 cluster_j=clusters[j]
@@ -161,7 +160,7 @@ class Clusterer:
         return new_graph
  
     def connectivity_matrix(self,clusters ,rows):
-        new_graph=empty((len(rows),len(clusters)))
+        new_graph=zeros((len(rows),len(clusters)))
         for i in range(len(rows)):
             for j in range(rows[i],len(clusters)):
                 cluster_j=clusters[j]
@@ -177,6 +176,7 @@ class Clusterer:
         return new_graph
     def fit(self,data):
         try:
+            ray.init()
             data_np=array(data)
             self.clusters=[Cluster(append(data_np[i],i), init_length = self.init_cluster_length) for i in range(len(data_np)) ]
             iter_num=1
