@@ -14,3 +14,7 @@ Input:
 Ouput:
   cluster labels (galaxies without cluster have label -1) in form of .np
   Optional: html plot (via plotly.dash)
+
+Install:
+download  https://github.com/jeromeshan/mimas/blob/main/dist/mimaslib-0.1.0-py3-none-any.whl
+and then pip this file
