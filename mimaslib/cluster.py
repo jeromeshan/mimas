@@ -4,6 +4,7 @@ from pytransform3d.rotations import matrix_from_axis_angle
 from scipy.spatial.transform import Rotation as Rot
 from numpy import transpose, array, ndarray, hstack
 
+
 class Cluster():
     # non shifted shape, easy to expand
     non_rotated_cube= None
@@ -53,13 +54,11 @@ class Cluster():
         
         return rotmat
 
-    
-    
     def grow(self,coef):
         if(self.times_grow==5):
             self.is_complete=True
             return
         self.times_grow+=1
         self.non_rotated_cube=self.non_rotated_cube*coef
-        self.rotated_cube = self.rotate(self.centroid,self.non_rotated_cube)+self.centroid            
+        self.rotated_cube = self.rotate(self.centroid,self.non_rotated_cube)+self.centroid         
     

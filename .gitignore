@@ -4,6 +4,10 @@ mimaslib.egg-info/
 mimaslib/__pychache__/
 tests/__pychache__/
 .vscode
+
 *.csv
 *.html
 *.pyc
+*.npy
+
+some.py
