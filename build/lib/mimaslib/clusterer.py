@@ -14,17 +14,20 @@ class Clusterer:
  
     unit_cube=(transpose(array([[0, 0, 1, 1, 0, 0, 1, 1],[0, 1, 1, 0, 0, 1, 1, 0],[0, 0, 0, 0, 1, 1, 1, 1]]))-0.5)
     init_cluster_length = None
+    init_cluster_width = None
     coefs = 0
  
     '''
         init_length - ration on longer part of parallelepiped to shorters
         coefs - array of coefs to steps of algo
     '''
-    def __init__(self,init_cluster_length=10, coefs = 1+1/arange(1,100)[15:]*5, max_iter = 30):
+    def __init__(self,init_cluster_length=0.5,init_cluster_width=0.05, coefs = 1+1/arange(1,100)[15:]*5, max_iter = 30, limit_radian = 0.01):
         self.clusters=[]
         self.init_cluster_length = init_cluster_length
+        self.init_cluster_width = init_cluster_width
         self.coefs = coefs
         self.max_iter = max_iter
+        self.limit_radian = limit_radian
  
     def merge(self):
  
@@ -97,7 +100,7 @@ class Clusterer:
         length = distances_on_line.max()
         width=norm(vectors_from_line,axis=1).max()
  
-        cube=self.unit_cube.copy()*[width*2+0.05,width*2+0.05,length*2+0.05]
+        cube=self.unit_cube.copy()*[width*2+self.init_cluster_width,width*2+self.init_cluster_width,length*2+self.init_cluster_length]
  
         return Cluster(center,cube,galaxies,self.init_cluster_length)
  
@@ -118,7 +121,7 @@ class Clusterer:
         length = distances_on_line.max()
         width=norm(vectors_from_line,axis=1).max()
  
-        cube=self.unit_cube.copy()*[width*2+0.05,width*2+0.05,length*2+0.05]
+        cube=self.unit_cube.copy()*[width*2+self.init_cluster_width/10,width*2+self.init_cluster_width/10,length*2+self.init_cluster_length/10]
  
         return Cluster(center,cube,galaxies,self.init_cluster_length)
  
@@ -149,10 +152,10 @@ class Clusterer:
             for j in range(rows[i],len(clusters)):
                 cluster_j=clusters[j]
                 cluster_i=clusters[rows[i]]
-                if(norm(cluster_i.centroid-cluster_j.centroid)>8):
+                if(norm(cluster_i.centroid-cluster_j.centroid)>(cluster_i.get_length()+cluster_j.get_length())/2):
                     continue 
  
-                if(np.arccos((dot(cluster_i.centroid, cluster_j.centroid) / (norm(cluster_i.centroid) * norm(cluster_j.centroid))))>0.01):
+                if(np.arccos((dot(cluster_i.centroid, cluster_j.centroid) / (norm(cluster_i.centroid) * norm(cluster_j.centroid))))>self.limit_radian):
                     continue
  
                 if(self.check_collision(cluster_i,cluster_j)):
@@ -165,10 +168,10 @@ class Clusterer:
             for j in range(rows[i],len(clusters)):
                 cluster_j=clusters[j]
                 cluster_i=clusters[rows[i]]
-                if(norm(cluster_i.centroid-cluster_j.centroid)>8):
+                if(norm(cluster_i.centroid-cluster_j.centroid)>(cluster_i.get_length()+cluster_j.get_length())):
                     continue 
  
-                if(np.arccos((dot(cluster_i.centroid, cluster_j.centroid) / (norm(cluster_i.centroid) * norm(cluster_j.centroid))))>0.01):
+                if(np.arccos((dot(cluster_i.centroid, cluster_j.centroid) / (norm(cluster_i.centroid) * norm(cluster_j.centroid))))>self.limit_radian):
                     continue
  
                 if(self.check_collision(cluster_i,cluster_j)):
@@ -178,7 +181,7 @@ class Clusterer:
         try:
             ray.init()
             data_np=array(data)
-            self.clusters=[Cluster(append(data_np[i],i), init_length = self.init_cluster_length) for i in range(len(data_np)) ]
+            self.clusters=[Cluster(append(data_np[i],i), init_length = self.init_cluster_length,  init_width = self.init_cluster_width) for i in range(len(data_np)) ]
             iter_num=1
             start = time.time()
             while(self.step(self.coefs[iter_num-1])):

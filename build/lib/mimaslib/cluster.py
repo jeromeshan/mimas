@@ -20,11 +20,13 @@ class Cluster():
     galaxies - coordinates on galaxies
     init_length - ration on longer part of parallelepiped to shorters
     '''
-    def __init__(self, center,non_rotated_cube=None,galaxies=None, init_length=10):
+    def __init__(self, center,non_rotated_cube=None,galaxies=None, init_length=0.5, init_width = 0.05):
         
-        tmp_l= [0, 0, 0, 0, 1, 1, 1, 1]
-        self.non_rotated_cube = (transpose(array([[0, 0, 1, 1, 0, 0, 1, 1],[0, 1, 1, 0, 0, 1, 1, 0],
-                                                  [element * init_length for element in tmp_l]]))-array([0.5,0.5,0.5*init_length]))*0.05
+        l_1 = [0, 0, 1, 1, 0, 0, 1, 1]
+        l_2 = [0, 1, 1, 0, 0, 1, 1, 0]
+        l_3 = [0, 0, 0, 0, 1, 1, 1, 1]
+        self.non_rotated_cube = (transpose(array([[element * init_width for element in l_1],[element * init_width for element in l_2],
+                                                  [element * init_length for element in l_3]]))-array([0.5*init_width,0.5*init_width,0.5*init_length]))
         
         if(isinstance(non_rotated_cube, ndarray)):
             self.non_rotated_cube=non_rotated_cube
@@ -40,6 +42,15 @@ class Cluster():
             if(Delaunay(self.rotated_cube).find_simplex(gal[:3]) < 0):
                 raise ValueError
         
+    def get_length(self):
+        length  =  self.non_rotated_cube[4,2] - self.non_rotated_cube[0,2]
+        return length
+
+
+    def get_width(self):
+        width =  self.non_rotated_cube[2,0] - self.non_rotated_cube[0,0]
+        return width
+
         
     def rotate(self, vector, points):    
         vector = vg.normalize(vector)

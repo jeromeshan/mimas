@@ -9,5 +9,7 @@ tests/__pychache__/
 *.html
 *.pyc
 *.npy
+*.ipynb
+
 
 some.py
