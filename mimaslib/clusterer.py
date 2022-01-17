@@ -16,19 +16,20 @@ class Clusterer:
     unit_cube = (transpose(array([[0, 0, 1, 1, 0, 0, 1, 1], [0, 1, 1, 0, 0, 1, 1, 0], [0, 0, 0, 0, 1, 1, 1, 1]]))-0.5)
     init_cluster_length = None
     init_cluster_width = None
-    coefs = 0
+    lr = 0
  
     '''
         init_length - ration on longer part of parallelepiped to shorters
-        coefs - array of coefs to steps of algo
+        lr - array of lr to steps of algo
     '''
-    def __init__(self, init_cluster_length = 0.5, init_cluster_width = 0.05, coefs = 1+1/arange(1, 100)[15:]*5, max_iter = 30, limit_radian = 0.01):
+    def __init__(self, init_cluster_length = 0.5, init_cluster_width = 0.05, lr = 1, max_iter = 30, limit_radian = 0.01, grow_limit = 3):
         self.clusters = []
         self.init_cluster_length = init_cluster_length
         self.init_cluster_width = init_cluster_width
-        self.coefs = coefs
+        self.lr = lr
         self.max_iter = max_iter
         self.limit_radian = limit_radian
+        self.grow_limit = grow_limit
  
     def merge(self):
  
@@ -96,7 +97,7 @@ class Clusterer:
 
         cube = n_dim_cube(self.n_dim, length*2+self.init_cluster_length, width*2+self.init_cluster_width)
  
-        return Cluster(center, cube, galaxies, self.init_cluster_length, n_dim = self.n_dim, new_galaxiex_koef = len(galaxies)/max_cluster_size)
+        return Cluster(center, cube, galaxies, self.init_cluster_length, n_dim = self.n_dim, new_galaxies_koef = len(galaxies)/max_cluster_size, grow_limit = self.grow_limit)
  
     def compress_cluster(self, cluster):
  
@@ -117,13 +118,13 @@ class Clusterer:
  
         cube = n_dim_cube(self.n_dim, length*2+self.init_cluster_length/10, width*2+self.init_cluster_width/10)
         
-        return Cluster(center, cube, galaxies, self.init_cluster_length, n_dim = self.n_dim)
+        return Cluster(center, cube, galaxies, n_dim = self.n_dim)
  
-    def step(self, grow_coef):
+    def step(self):
  
         is_done = True
         for cluster in self.clusters:
-            if(not cluster.is_complete):
+            if(not cluster.isComplete()):
                 is_done = False
                 break
  
@@ -131,7 +132,7 @@ class Clusterer:
             return False
  
         for cluster in self.clusters:
-            cluster.grow(grow_coef)
+            cluster.grow()
         self.merge()
         return True
  
@@ -148,6 +149,16 @@ class Clusterer:
             for j in range(rows[i], len(clusters)):
                 cluster_j = clusters[j]
                 cluster_i = clusters[rows[i]]
+                halfsum_len = (cluster_i.get_length()+cluster_j.get_length())/2
+                centroids_diff = cluster_i.centroid-cluster_j.centroid
+                dim_level_check = True
+                for k in range(self.n_dim):
+                    if(halfsum_len<np.abs(centroids_diff[k])):
+                        dim_level_check = False
+                        continue
+                if(not dim_level_check):
+                    continue
+
                 if(norm(cluster_i.centroid-cluster_j.centroid) > (cluster_i.get_length()+cluster_j.get_length())/2):
                     continue 
  
@@ -185,7 +196,7 @@ class Clusterer:
             self.clusters = [Cluster(append(data_np[i], i), init_length = self.init_cluster_length,  init_width = self.init_cluster_width, n_dim = self.n_dim) for i in range(len(data_np)) ]
             iter_num = 1
             start = time.time()
-            while(self.step(self.coefs[iter_num-1])):
+            while(self.step()):
                 print('iter : ', iter_num, ', n_clusters: ', len(self.clusters), ', time: ', time.time()-start, ' s')
                 iter_num += 1
                 start = time.time()

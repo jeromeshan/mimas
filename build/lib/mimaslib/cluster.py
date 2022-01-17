@@ -1,3 +1,4 @@
+import re
 from scipy.spatial import Delaunay
 import vg
 from pytransform3d.rotations import matrix_from_axis_angle
@@ -30,11 +31,10 @@ class Cluster():
     centroid = None# coor of center
     galaxies = None
     grow_limit = None
-    new_galaxiex_koef = None
+    new_galaxies_koef = None
 
     n_dim = 0
 
-    is_complete = False
     times_grow = 0
     '''
     center - coordinates of center of cluster (in case on sigle galaxy coordinates on galaxy)
@@ -42,11 +42,13 @@ class Cluster():
     galaxies - coordinates on galaxies
     init_length - ration on longer part of parallelepiped to shorters
     '''
-    def __init__(self, center, non_rotated_cube = None, galaxies = None, init_length = 0.5, init_width = 0.05, n_dim = 3, grow_limit = 5, new_galaxiex_koef = 1):
+    def __init__(self, center, non_rotated_cube = None, galaxies = None, init_length = 0.5, init_width = 0.05, n_dim = 3, grow_limit = 5, new_galaxies_koef = 1, lr =1):
         
         self.n_dim = n_dim 
         self.grow_limit = grow_limit
-        self.new_galaxiex_koef = new_galaxiex_koef
+        self.new_galaxies_koef = new_galaxies_koef
+        self.lr = lr
+
         self.non_rotated_cube = n_dim_cube(self.n_dim, init_length, init_width)
         
         if(isinstance(non_rotated_cube, ndarray)):
@@ -94,15 +96,17 @@ class Cluster():
 
         return array(rotmat)
 
-    def grow(self, coef):
-        if(self.times_grow == self.grow_limit):
-            self.is_complete = True
+    def isComplete(self):
+        return self.times_grow == self.grow_limit
+
+    def grow(self):
+        if(self.isComplete()):
             return
         self.times_grow += 1
 
-        composite_koef = self.new_galaxiex_koef * (1 + 1/np.power(len(self.galaxies),2))
+        composite_koef = self.lr * self.new_galaxies_koef * (1 + 1/len(self.galaxies))
 
-        self.new_galaxiex_koef = 1
+        self.new_galaxies_koef = 1
         self.non_rotated_cube = self.non_rotated_cube*composite_koef
         self.rotated_cube = self.rotate(self.centroid, self.non_rotated_cube)+self.centroid         
     
