@@ -3,6 +3,7 @@ from typing import List
 import ray
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
+from scipy.spatial.distance import cdist
 import time
 from numpy import transpose, array, arange, concatenate, eye, unique, dot, zeros, append, ones
 import numpy as np
@@ -35,27 +36,30 @@ class Clusterer:
  
         clusters_len = len(self.clusters)
  
- 
+        start = time.time()
         clusters_id = ray.put(self.clusters)
-        graph = ray.get([self.parallel_connectivity_matrix.remote(self, clusters_id, subset) for subset in self.split_array(arange(len(self.clusters)), 4)])
+        graph = ray.get([self.parallel_connectivity_matrix.remote(self, clusters_id, subset) for subset in self.split_array(arange(len(self.clusters)), 8)])
         graph = concatenate( graph, axis = 0 )
+        # print('\t\t','intersect check time: ', time.time()-start, ' s')
 
         # graph = self.connectivity_matrix(self.clusters, arange(len(self.clusters)))
 
+        start = time.time()
         graph = graph+transpose(graph)
         graph = graph-eye(len(self.clusters))
  
         graph = csr_matrix(graph)
         n_components, labels = connected_components(csgraph = graph, directed = False, return_labels = True)
- 
+        # print('\t\t','connected components time: ', time.time()-start, ' s')
+
         components = []
  
         np_clusters = array(self.clusters)
- 
         components = [np_clusters[labels == label]  for label in unique(labels) ]
- 
+        start = time.time()
         new_clusters = list(map(self.collide_clusters, components))
- 
+        # print('\t\t','colliding time: ', time.time()-start, ' s')
+
         self.clusters = new_clusters        
  
     
@@ -78,7 +82,7 @@ class Clusterer:
         if(len(clusters) == 1):
             return clusters[0]
 
-        max_cluster_size = len(max(clusters, key = lambda c: len(c.galaxies)).galaxies)
+        max_prev_cluster = max(clusters, key = lambda c: len(c.galaxies))
         galaxies = [cluster.galaxies for cluster in clusters]
         vertex_points = [cluster.rotated_cube for cluster in clusters]
  
@@ -97,7 +101,7 @@ class Clusterer:
 
         cube = n_dim_cube(self.n_dim, length*2+self.init_cluster_length, width*2+self.init_cluster_width)
  
-        return Cluster(center, cube, galaxies, self.init_cluster_length, n_dim = self.n_dim, new_galaxies_koef = len(galaxies)/max_cluster_size, grow_limit = self.grow_limit)
+        return Cluster(center, cube, galaxies, self.init_cluster_length, n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr)
  
     def compress_cluster(self, cluster):
  
@@ -118,22 +122,30 @@ class Clusterer:
  
         cube = n_dim_cube(self.n_dim, length*2+self.init_cluster_length/10, width*2+self.init_cluster_width/10)
         
-        return Cluster(center, cube, galaxies, n_dim = self.n_dim)
+        return Cluster(center, cube, galaxies, n_dim = self.n_dim, lr = self.lr)
  
     def step(self):
  
+        start = time.time()
         is_done = True
         for cluster in self.clusters:
             if(not cluster.isComplete()):
                 is_done = False
                 break
- 
+        print('\t','complete check time: ', time.time()-start, ' s')
+
         if (is_done):
             return False
- 
+
+        start = time.time()
         for cluster in self.clusters:
             cluster.grow()
+        print('\t','grow time: ', time.time()-start, ' s')
+
+        start = time.time()
         self.merge()
+        print('\t','merge time: ', time.time()-start, ' s')
+
         return True
  
 
@@ -149,6 +161,9 @@ class Clusterer:
             for j in range(rows[i], len(clusters)):
                 cluster_j = clusters[j]
                 cluster_i = clusters[rows[i]]
+                centroid_j = cluster_j.centroid.reshape(1,-1)
+                centroid_i = cluster_i.centroid.reshape(1,-1)
+
                 halfsum_len = (cluster_i.get_length()+cluster_j.get_length())/2
                 centroids_diff = cluster_i.centroid-cluster_j.centroid
                 dim_level_check = True
@@ -159,10 +174,10 @@ class Clusterer:
                 if(not dim_level_check):
                     continue
 
-                if(norm(cluster_i.centroid-cluster_j.centroid) > (cluster_i.get_length()+cluster_j.get_length())/2):
+                if(cdist(centroid_i,centroid_j,'euclidean') > halfsum_len):
                     continue 
  
-                if(np.arccos((dot(cluster_i.centroid, cluster_j.centroid) / (norm(cluster_i.centroid) * norm(cluster_j.centroid)))) > self.limit_radian):
+                if(np.arccos(1 - cdist(centroid_i,centroid_j,'cosine')) > self.limit_radian):
                     continue
  
                 if(self.check_collision(cluster_i, cluster_j)):
@@ -193,7 +208,7 @@ class Clusterer:
             ray.init()
             data_np = array(data)
             self.n_dim = len(data_np[0])
-            self.clusters = [Cluster(append(data_np[i], i), init_length = self.init_cluster_length,  init_width = self.init_cluster_width, n_dim = self.n_dim) for i in range(len(data_np)) ]
+            self.clusters = [Cluster(append(data_np[i], i), init_length = self.init_cluster_length,  init_width = self.init_cluster_width, n_dim = self.n_dim,lr = self.lr) for i in range(len(data_np)) ]
             iter_num = 1
             start = time.time()
             while(self.step()):

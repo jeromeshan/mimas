@@ -42,11 +42,12 @@ class Cluster():
     galaxies - coordinates on galaxies
     init_length - ration on longer part of parallelepiped to shorters
     '''
-    def __init__(self, center, non_rotated_cube = None, galaxies = None, init_length = 0.5, init_width = 0.05, n_dim = 3, grow_limit = 5, new_galaxies_koef = 1, lr =1):
+    def __init__(self, center, non_rotated_cube = None, galaxies = None, init_length = 0.5, init_width = 0.05, n_dim = 3, grow_limit = 5, prev_n = None,prev_v = None, lr =1):
         
         self.n_dim = n_dim 
         self.grow_limit = grow_limit
-        self.new_galaxies_koef = new_galaxies_koef
+        self.prev_n = prev_n
+        self.prev_v = prev_v
         self.lr = lr
 
         self.non_rotated_cube = n_dim_cube(self.n_dim, init_length, init_width)
@@ -74,6 +75,12 @@ class Cluster():
         width =  self.non_rotated_cube[1, 1] - self.non_rotated_cube[0, 0]
         return width
 
+    def get_volume(self):
+        volume = self.get_length()
+        for i in range(self.n_dim-1):
+            volume*=self.get_width()
+        return volume
+
         
     def rotate(self, vector, points):    
 
@@ -99,14 +106,21 @@ class Cluster():
     def isComplete(self):
         return self.times_grow == self.grow_limit
 
+        
+
     def grow(self):
         if(self.isComplete()):
             return
         self.times_grow += 1
 
-        composite_koef = self.lr * self.new_galaxies_koef * (1 + 1/len(self.galaxies))
-
-        self.new_galaxies_koef = 1
+        if(self.prev_n is None):
+            composite_koef = np.power( self.lr  * (1 + 1/len(self.galaxies)),1/self.n_dim)
+        else:
+            nu1 = len(self.galaxies)*1.0/self.get_volume()
+            nu2 = self.prev_n*1.0 / self.prev_v
+            composite_koef = np.power( self.lr*(len(self.galaxies)*1.0/self.prev_n) * (1 + nu2/nu1) ,1/self.n_dim)
+        self.prev_n = None
+        self.prev_v = None
         self.non_rotated_cube = self.non_rotated_cube*composite_koef
         self.rotated_cube = self.rotate(self.centroid, self.non_rotated_cube)+self.centroid         
     
