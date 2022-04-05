@@ -1,7 +1,6 @@
 import re
 from scipy.spatial import Delaunay
 import vg
-from pytransform3d.rotations import matrix_from_axis_angle
 from scipy.spatial.transform import Rotation as Rot
 from numpy import transpose, array, ndarray, hstack
 import numpy as np
@@ -123,4 +122,3 @@ class Cluster():
         self.prev_v = None
         self.non_rotated_cube = self.non_rotated_cube*composite_koef
         self.rotated_cube = self.rotate(self.centroid, self.non_rotated_cube)+self.centroid         
-    
