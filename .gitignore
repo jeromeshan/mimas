@@ -10,6 +10,9 @@ tests/__pychache__/
 *.pyc
 *.npy
 *.ipynb
+*.ipynb_checkpoints
+*.xlsx
 
 
 some.py
+gs.py
