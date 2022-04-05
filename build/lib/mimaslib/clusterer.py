@@ -15,18 +15,15 @@ from cluster import Cluster, n_dim_cube
 class Clusterer:
  
     unit_cube = (transpose(array([[0, 0, 1, 1, 0, 0, 1, 1], [0, 1, 1, 0, 0, 1, 1, 0], [0, 0, 0, 0, 1, 1, 1, 1]]))-0.5)
-    init_cluster_length = None
-    init_cluster_width = None
     lr = 0
  
     '''
-        init_length - ration on longer part of parallelepiped to shorters
+        length - ration on longer part of parallelepiped to shorters
         lr - array of lr to steps of algo
     '''
-    def __init__(self, init_cluster_length = 0.5, init_cluster_width = 0.05, lr = 1, max_iter = 30, limit_radian = 0.01, grow_limit = 3):
+    def __init__(self, epsilon = 0.5, lr = 1, max_iter = 30, limit_radian = 0.01, grow_limit = 3):
         self.clusters = []
-        self.init_cluster_length = init_cluster_length
-        self.init_cluster_width = init_cluster_width
+        self.epsilon = epsilon
         self.lr = lr
         self.max_iter = max_iter
         self.limit_radian = limit_radian
@@ -34,37 +31,27 @@ class Clusterer:
  
     def merge(self):
  
-        clusters_len = len(self.clusters)
  
-        start = time.time()
         clusters_id = ray.put(self.clusters)
         graph = ray.get([self.parallel_connectivity_matrix.remote(self, clusters_id, subset) for subset in self.split_array(arange(len(self.clusters)), 8)])
         graph = concatenate( graph, axis = 0 )
-        # print('\t\t','intersect check time: ', time.time()-start, ' s')
 
         # graph = self.connectivity_matrix(self.clusters, arange(len(self.clusters)))
 
         start = time.time()
         graph = graph+transpose(graph)
         graph = graph-eye(len(self.clusters))
- 
         graph = csr_matrix(graph)
-        n_components, labels = connected_components(csgraph = graph, directed = False, return_labels = True)
-        # print('\t\t','connected components time: ', time.time()-start, ' s')
-
+        _, labels = connected_components(csgraph = graph, directed = False, return_labels = True)
         components = []
  
         np_clusters = array(self.clusters)
         components = [np_clusters[labels == label]  for label in unique(labels) ]
-        start = time.time()
         new_clusters = list(map(self.collide_clusters, components))
-        # print('\t\t','colliding time: ', time.time()-start, ' s')
 
         self.clusters = new_clusters        
- 
     
     def check_collision(self, a:Cluster, b: Cluster):
-
         n = a.n_dim-2
         bases = []
         bases.append(a.rotated_cube[1]-a.rotated_cube[0])
@@ -99,9 +86,9 @@ class Clusterer:
         length = distances_on_line.max()
         width = norm(vectors_from_line, axis = 1).max()
 
-        cube = n_dim_cube(self.n_dim, length*2+self.init_cluster_length, width*2+self.init_cluster_width)
+        cube = n_dim_cube(self.n_dim, length*2+self.epsilon, width*2+self.epsilon)
  
-        return Cluster(center, cube, galaxies, self.init_cluster_length, n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr)
+        return Cluster(center, cube, galaxies,  n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr)
  
     def compress_cluster(self, cluster):
  
@@ -120,7 +107,7 @@ class Clusterer:
         length = distances_on_line.max()
         width = norm(vectors_from_line, axis = 1).max()
  
-        cube = n_dim_cube(self.n_dim, length*2+self.init_cluster_length/10, width*2+self.init_cluster_width/10)
+        cube = n_dim_cube(self.n_dim, length*2+self.epsilon/10, width*2+self.epsilon/10)
         
         return Cluster(center, cube, galaxies, n_dim = self.n_dim, lr = self.lr)
  
@@ -208,7 +195,7 @@ class Clusterer:
             ray.init()
             data_np = array(data)
             self.n_dim = len(data_np[0])
-            self.clusters = [Cluster(append(data_np[i], i), init_length = self.init_cluster_length,  init_width = self.init_cluster_width, n_dim = self.n_dim,lr = self.lr) for i in range(len(data_np)) ]
+            self.clusters = [Cluster(append(data_np[i], i), epsilon = self.epsilon, n_dim = self.n_dim,lr = self.lr) for i in range(len(data_np)) ]
             iter_num = 1
             start = time.time()
             while(self.step()):

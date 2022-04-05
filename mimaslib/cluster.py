@@ -42,7 +42,7 @@ class Cluster():
     galaxies - coordinates on galaxies
     init_length - ration on longer part of parallelepiped to shorters
     '''
-    def __init__(self, center, non_rotated_cube = None, galaxies = None, init_length = 0.5, init_width = 0.05, n_dim = 3, grow_limit = 5, prev_n = None,prev_v = None, lr =1):
+    def __init__(self, center, non_rotated_cube = None, galaxies = None, epsilon = 0.5, n_dim = 3, grow_limit = 5, prev_n = None,prev_v = None, lr =1):
         
         self.n_dim = n_dim 
         self.grow_limit = grow_limit
@@ -50,7 +50,7 @@ class Cluster():
         self.prev_v = prev_v
         self.lr = lr
 
-        self.non_rotated_cube = n_dim_cube(self.n_dim, init_length, init_width)
+        self.non_rotated_cube = n_dim_cube(self.n_dim, epsilon, epsilon)
         
         if(isinstance(non_rotated_cube, ndarray)):
             self.non_rotated_cube = non_rotated_cube
@@ -106,7 +106,7 @@ class Cluster():
     def isComplete(self):
         return self.times_grow == self.grow_limit
 
-        
+
 
     def grow(self):
         if(self.isComplete()):
