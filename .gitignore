@@ -4,6 +4,7 @@ mimaslib.egg-info/
 mimaslib/__pychache__/
 tests/__pychache__/
 .vscode
+stuff/
 
 *.csv
 *.html
@@ -16,3 +17,4 @@ tests/__pychache__/
 
 some.py
 gs.py
+.DS_store
