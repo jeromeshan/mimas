@@ -2,16 +2,17 @@ from typing import List
 import ray
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
+from scipy.spatial import Delaunay
 from scipy.spatial.distance import cdist
 import time
 from numpy import transpose, array, arange, concatenate, eye, unique, dot, zeros, append, ones
 import numpy as np
 from numpy.linalg import norm
-# from .cluster import Cluster, n_dim_cube
-from cluster import Cluster, n_dim_cube
+from .cluster import Cluster, n_dim_cube
+from scipy.spatial import distance
 
 class ConnectivityMatrix:
-    def __init__(self, clusters:List[Cluster],epsilon,limit_radian):
+    def __init__(self, clusters:List[Cluster],epsilon,limit_radian,n_dim):
 
         self.data = []
         self.epsilon = epsilon
@@ -20,8 +21,11 @@ class ConnectivityMatrix:
             self.data.append([cluster.centroid.reshape(1,-1),#0
             len(cluster.galaxies),#1
             cluster.get_length(),#2
-            cluster.rotated_cube])#3
-        self.data = np.array(self.data)
+            cluster.rotated_cube,#3
+            cluster.galaxies[:,:n_dim],
+            cluster.isWasComplete()
+            ])
+        self.data = np.array(self.data,dtype=object)
         # for el in self.data:
         #     print(el)
     
@@ -31,7 +35,7 @@ class ConnectivityMatrix:
 
     def get_matrix(self):
         data = ray.put(self.data)
-        graph = ray.get([self.parallel_connectivity_matrix.remote(self, data, subset) for subset in self.split_array(arange(len(self.data)), 8)])
+        graph = ray.get([self.parallel_connectivity_matrix.remote(self, data, subset) for subset in self.split_array(arange(len(self.data)), 64)])
         graph = concatenate( graph, axis = 0 )
         # graph = self.connectivity_matrix(self.clusters, arange(len(self.clusters)))
         graph = graph+transpose(graph)
@@ -50,7 +54,17 @@ class ConnectivityMatrix:
                 n_dim = len(centroid_i)
                 cube_i = data[rows[i],3]
                 cube_j = data[j,3]
-                                
+                p_i = data[rows[i],4]
+                p_j = data[j,4]
+                
+                if(data[rows[i],5] and data[j,5]):
+                    continue
+                
+                if((data[rows[i],1]==1) and (data[j,1]==1)):
+                    if(cdist(centroid_i,centroid_j,'euclidean')<self.epsilon):
+                        new_graph[i, j] = 1
+                    continue
+
                 centroids_diff =centroid_i[0]-centroid_j[0]
                 dim_level_check = True
                 for k in range(n_dim):
@@ -60,38 +74,24 @@ class ConnectivityMatrix:
                 if(not dim_level_check):
                     continue
 
-                if((data[rows[i],1]==1) and (data[rows[i],1]==1)):
-                    if(cdist(centroid_i,centroid_j,'euclidean')<self.epsilon):
-                        new_graph[i, j] = 1
-                    continue
 
-                # if(cdist(centroid_i,centroid_j,'euclidean') > halfsum_len):
-                #     continue 
-
-                if(np.arccos(1 - cdist(centroid_i,centroid_j,'cosine')) > self.limit_radian):
+                if(np.arccos(1- cdist(centroid_i,centroid_j,'cosine')) > self.limit_radian):
                     continue
  
-                if(self.check_collision(cube_i,cube_j)):
+                if(distance.cdist(p_i,p_j).min()>10*self.epsilon):
+                    continue
+
+                if(self.check_collision(cube_i,p_j)):
                     new_graph[i, j] = 1
-                elif(self.check_collision(cube_j, cube_i)):
+                elif(self.check_collision(cube_j, p_i)):
                     new_graph[i, j] = 1
         return new_graph
 
-    def check_collision(self, a, b):
-        n = len(a[0])-2
-        bases = []
-        bases.append(a[1]-a[0])
-        bases.append(a[3]-a[0])
-        for i in range(n):
-            bases.append(a[2**(i+2)]-a[0])
-        for point in b:
-            u = point-a[0]
-            for v in bases:
-                if not ((0 <= dot(u, v)) and (dot(u, v) <= dot(v, v))):
-                    continue
+    def check_collision(self, cube, p):
+        delaunay = Delaunay(cube)
+        for gal in p:
+            if(delaunay.find_simplex(gal) >= 0):
                 return True
-            # if ( all((0 <= dot(u, v)) and (dot(u, v) <= dot(v, v)) for v in bases)):
-            #     return True
         return False
 
     
@@ -99,13 +99,14 @@ class ConnectivityMatrix:
 class Clusterer:
     lr = 0
 
-    def __init__(self, epsilon = 0.5, lr = 1, max_iter = 30, limit_radian = 0.01, grow_limit = 3):
+    def __init__(self, epsilon = 0.5, lr = 1, max_iter = 30, limit_radian = 0.01, grow_limit = 3,elongate_grow = 1):
         self.clusters = []
         self.epsilon = epsilon
         self.lr = lr
         self.max_iter = max_iter
         self.limit_radian = limit_radian
         self.grow_limit = grow_limit
+        self.elongate_grow = elongate_grow
  
     def merge(self):
         # clusters_id = ray.put(self.clusters)
@@ -113,7 +114,7 @@ class Clusterer:
         # graph = concatenate( graph, axis = 0 )
         # graph = self.connectivity_matrix(self.clusters, arange(len(self.clusters)))
 
-        matrix_gen = ConnectivityMatrix(self.clusters,self.epsilon,self.limit_radian)
+        matrix_gen = ConnectivityMatrix(self.clusters,self.epsilon,self.limit_radian,self.n_dim)
         graph = matrix_gen.get_matrix()     
 
         graph = graph+transpose(graph)
@@ -152,7 +153,7 @@ class Clusterer:
 
         cube = n_dim_cube(self.n_dim, length*2+self.epsilon/2, width*2+self.epsilon/2)
  
-        return Cluster(center, cube, galaxies,  n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr)
+        return Cluster(center, cube, galaxies,  n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr, elongate_grow = self.elongate_grow)
  
     def compress_cluster(self, cluster):
  
@@ -173,29 +174,33 @@ class Clusterer:
  
         cube = n_dim_cube(self.n_dim, length*2+self.epsilon/10, width*2+self.epsilon/10)
         
-        return Cluster(center, cube, galaxies, n_dim = self.n_dim, lr = self.lr)
+        return Cluster(center, cube, galaxies, n_dim = self.n_dim, lr = self.lr,elongate_grow= self.elongate_grow)
  
     def step(self):
  
-        start = time.time()
+        # start = time.time()
         is_done = True
         for cluster in self.clusters:
             if(not cluster.isComplete()):
                 is_done = False
                 break
-        print('\t','complete check time: ', time.time()-start, ' s')
+        # print('\t','complete check time: ', time.time()-start, ' s')
 
         if (is_done):
             return False
+        
+        
+        if(not self.isFirstStep):
+            # start = time.time()
+            for cluster in self.clusters:
+                cluster.grow()
+            # print('\t','grow time: ', time.time()-start, ' s')
+        else:
+            self.isFirstStep = False
 
-        start = time.time()
+        # start = time.time()
         self.merge()
-        print('\t','merge time: ', time.time()-start, ' s')
-
-        start = time.time()
-        for cluster in self.clusters:
-            cluster.grow()
-        print('\t','grow time: ', time.time()-start, ' s')
+        # print('s\t','merge time: ', time.time()-start, ' s')
 
         return True
 
@@ -206,17 +211,24 @@ class Clusterer:
 
     def fit(self, data):
         try:
-            ray.init()
+            ray.init(num_cpus = 16)
             data_np = array(data)
             self.n_dim = len(data_np[0])
-            self.clusters = [Cluster(append(data_np[i], i), epsilon = self.epsilon, n_dim = self.n_dim,lr = self.lr) for i in range(len(data_np)) ]
+            self.clusters = [Cluster(append(data_np[i], i), epsilon = self.epsilon, n_dim = self.n_dim,lr = self.lr,elongate_grow = self.elongate_grow) for i in range(len(data_np)) ]
             iter_num = 1
+            self.isFirstStep = True
             start = time.time()
+            prev_clusters_number = len(self.clusters)
             while(self.step()):
                 print('iter : ', iter_num, ', n_clusters: ', len(self.clusters), ', time: ', time.time()-start, ' s')
                 iter_num += 1
                 start = time.time()
 
+                if (prev_clusters_number - len(self.clusters) <= 1):
+                    break
+                else:
+                    prev_clusters_number = len(self.clusters)
+                
                 if(iter_num > self.max_iter):
                     break
 
