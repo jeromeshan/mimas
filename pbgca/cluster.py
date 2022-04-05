@@ -1,9 +1,9 @@
-import re
 from scipy.spatial import Delaunay
 from numpy import transpose, array, ndarray
 import numpy as np
 
 def n_dim_cube(n, init_length, init_width):
+
     unit = [[ -0.5, -0.5, 0.5, 0.5], [ -0.5, 0.5, 0.5, -0.5]]
 
     if n != 2:
@@ -20,6 +20,7 @@ def n_dim_cube(n, init_length, init_width):
             unit[l] = [element * init_width for element in unit[l]]
 
     return transpose(array(unit))
+
 
 class Cluster():
     # non shifted shape, easy to expand
