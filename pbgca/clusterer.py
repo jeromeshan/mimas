@@ -1,3 +1,4 @@
+import re
 from typing import List
 import ray
 from scipy.sparse import csr_matrix
@@ -12,11 +13,12 @@ from .cluster import Cluster, n_dim_cube
 from scipy.spatial import distance
 
 class ConnectivityMatrix:
-    def __init__(self, clusters:List[Cluster],epsilon,limit_radian,n_dim):
+    def __init__(self, clusters:List[Cluster],epsilon,limit_radian,n_dim,parallel):
 
         self.data = []
         self.epsilon = epsilon
         self.limit_radian = limit_radian
+        self.parallel = parallel
         for cluster in clusters:
             self.data.append([cluster.centroid.reshape(1,-1),#0
             len(cluster.galaxies),#1
@@ -26,27 +28,32 @@ class ConnectivityMatrix:
             cluster.isWasComplete()
             ])
         self.data = np.array(self.data,dtype=object)
-        # for el in self.data:
-        #     print(el)
     
     def split_array(self, a, n):
         k, m = divmod(len(a), n)
         return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
 
     def get_matrix(self):
-        data = ray.put(self.data)
-        graph = ray.get([self.parallel_connectivity_matrix.remote(self, data, subset) for subset in self.split_array(arange(len(self.data)), 64)])
-        graph = concatenate( graph, axis = 0 )
-        # graph = self.connectivity_matrix(self.clusters, arange(len(self.clusters)))
+        if self.parallel:
+            data = ray.put(self.data)
+            graph = ray.get([self.parallel_connectivity_matrix.remote(self, data, subset) for subset in self.split_array(arange(len(self.data)), 64)])
+            graph = concatenate( graph, axis = 0 )
+        else:
+            graph = self.connectivity_matrix(self.data, arange(len(self.data)))
+
         graph = graph+transpose(graph)
         graph = graph-eye(len(self.data))
         return graph
 
-    @ray.remote
-    def parallel_connectivity_matrix(self, data , rows):
+
+    def connectivity_matrix(self, data , rows):
         new_graph = zeros((len(rows), len(data)))
         for i in range(len(rows)):
             for j in range(rows[i], len(data)):
+
+                if(rows[i] == j):
+                    new_graph[i, j] = 1
+                    continue
 
                 halfsum_len = (data[rows[i],2]+data[j,2])/2
                 centroid_i = data[rows[i],0]
@@ -87,6 +94,10 @@ class ConnectivityMatrix:
                     new_graph[i, j] = 1
         return new_graph
 
+    @ray.remote
+    def parallel_connectivity_matrix(self, data, rows):
+        return self.connectivity_matrix(data, rows)
+        
     def check_collision(self, cube, p):
         delaunay = Delaunay(cube)
         for gal in p:
@@ -97,9 +108,10 @@ class ConnectivityMatrix:
     
 
 class Clusterer:
-    lr = 0
 
-    def __init__(self, epsilon = 0.5, lr = 1, max_iter = 30, limit_radian = 0.01, grow_limit = 3,elongate_grow = 1):
+    def __init__(self, epsilon = 0.5, lr = 1, max_iter = 30,
+                limit_radian = 0.01, grow_limit = 3, elongate_grow = 1,
+                grow_function = 'density', min_diff = 1, parallel = False):
         self.clusters = []
         self.epsilon = epsilon
         self.lr = lr
@@ -107,14 +119,13 @@ class Clusterer:
         self.limit_radian = limit_radian
         self.grow_limit = grow_limit
         self.elongate_grow = elongate_grow
+        self.grow_function = grow_function
+        self.min_diff = min_diff
+        self.parallel = parallel
  
     def merge(self):
-        # clusters_id = ray.put(self.clusters)
-        # graph = ray.get([self.parallel_connectivity_matrix.remote(self, clusters_id, subset) for subset in self.split_array(arange(len(self.clusters)), 8)])
-        # graph = concatenate( graph, axis = 0 )
-        # graph = self.connectivity_matrix(self.clusters, arange(len(self.clusters)))
 
-        matrix_gen = ConnectivityMatrix(self.clusters,self.epsilon,self.limit_radian,self.n_dim)
+        matrix_gen = ConnectivityMatrix(self.clusters,self.epsilon,self.limit_radian,self.n_dim,self.parallel)
         graph = matrix_gen.get_matrix()     
 
         graph = graph+transpose(graph)
@@ -153,14 +164,13 @@ class Clusterer:
 
         cube = n_dim_cube(self.n_dim, length*2+self.epsilon/2, width*2+self.epsilon/2)
  
-        return Cluster(center, cube, galaxies,  n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr, elongate_grow = self.elongate_grow)
+        return Cluster(center, cube, galaxies,  n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr, elongate_grow = self.elongate_grow, grow_function=self.grow_function)
  
     def compress_cluster(self, cluster):
  
         galaxies = cluster.galaxies
         if(galaxies.ndim == 1 ):
             galaxies = array([galaxies])
-        vertex_points = cluster.rotated_cube
  
         center = galaxies[:, :self.n_dim].mean(axis = 0)
  
@@ -174,7 +184,7 @@ class Clusterer:
  
         cube = n_dim_cube(self.n_dim, length*2+self.epsilon/10, width*2+self.epsilon/10)
         
-        return Cluster(center, cube, galaxies, n_dim = self.n_dim, lr = self.lr,elongate_grow= self.elongate_grow)
+        return Cluster(center, cube, galaxies, n_dim = self.n_dim)
  
     def step(self):
  
@@ -210,36 +220,41 @@ class Clusterer:
  
 
     def fit(self, data):
-        try:
-            ray.init(num_cpus = 16)
-            data_np = array(data)
-            self.n_dim = len(data_np[0])
-            self.clusters = [Cluster(append(data_np[i], i), epsilon = self.epsilon, n_dim = self.n_dim,lr = self.lr,elongate_grow = self.elongate_grow) for i in range(len(data_np)) ]
-            iter_num = 1
-            self.isFirstStep = True
+
+        if(self.parallel):
+            if ray.is_initialized():
+                ray.shutdown()
+            ray.init()
+
+        data_np = array(data)
+        self.n_dim = len(data_np[0])
+        self.clusters = [Cluster(append(data_np[i], i), epsilon = self.epsilon, n_dim = self.n_dim,lr = self.lr,elongate_grow = self.elongate_grow, grow_function=self.grow_function) for i in range(len(data_np)) ]
+        iter_num = 1
+        self.isFirstStep = True
+        start = time.time()
+        prev_clusters_number = len(self.clusters)
+        while(self.step()):
+            print('iter : ', iter_num, ', n_clusters: ', len(self.clusters), ', time: ', time.time()-start, ' s')
+            iter_num += 1
             start = time.time()
-            prev_clusters_number = len(self.clusters)
-            while(self.step()):
-                print('iter : ', iter_num, ', n_clusters: ', len(self.clusters), ', time: ', time.time()-start, ' s')
-                iter_num += 1
-                start = time.time()
 
-                if (prev_clusters_number - len(self.clusters) <= 1):
-                    break
-                else:
-                    prev_clusters_number = len(self.clusters)
-                
-                if(iter_num > self.max_iter):
-                    break
+            if ((self.min_diff>0) and (prev_clusters_number - len(self.clusters) <= self.min_diff)):
+                break
+            else:
+                prev_clusters_number = len(self.clusters)
+            
+            if(iter_num > self.max_iter):
+                break
 
-            galaxies = []
+        galaxies = []
+        galaxies = [append(self.clusters[i].galaxies, ones((len(self.clusters[i].galaxies), 1))*i , axis = 1) for i in range(len(self.clusters))]
+        self.clusters = [self.compress_cluster(cluster) for cluster in self.clusters]
+        galaxies = concatenate(galaxies)
+        galaxies = galaxies[galaxies[:, self.n_dim].argsort()]  
 
-            galaxies = [append(self.clusters[i].galaxies, ones((len(self.clusters[i].galaxies), 1))*i , axis = 1) for i in range(len(self.clusters))]
-            self.clusters = [self.compress_cluster(cluster) for cluster in self.clusters]
-            galaxies = concatenate(galaxies)
-            galaxies = galaxies[galaxies[:, self.n_dim].argsort()]  
-            return galaxies[:, -1]
-        except Exception as e:
-            print(e)
-        finally:
+        if(self.parallel):
             ray.shutdown()
+        
+        self.labels_ = galaxies[:, -1]
+
+        return self.labels_

@@ -30,17 +30,25 @@ class Cluster():
     galaxies = None
     grow_limit = None
     new_galaxies_koef = None
-
+    grow_function = None
+    n_dim = None
+    elongate_grow = None
+    prev_n = None
+    prev_v = None
+    lr = None
     n_dim = 0
-
     times_grow = 0
+    epsilon = 0
     '''
     center - coordinates of center of cluster (in case on sigle galaxy coordinates on galaxy)
     non_rotated_cube - coordinates of non rotated parallelepiped that fits to cluster
     galaxies - coordinates on galaxies
     init_length - ration on longer part of parallelepiped to shorters
     '''
-    def __init__(self, center, non_rotated_cube = None, galaxies = None, epsilon = 0.5, n_dim = 3, grow_limit = 5, prev_n = None,prev_v = None, lr =1,elongate_grow = 1):
+    def __init__(self, center, non_rotated_cube = None,
+                galaxies = None, epsilon = 0.5, n_dim = 3,
+                grow_limit = 5, prev_n = None, prev_v = None,
+                lr =1, elongate_grow = 1, grow_function = 'density'):
         
         self.was_complete = False
         
@@ -50,6 +58,7 @@ class Cluster():
         self.prev_n = prev_n
         self.prev_v = prev_v
         self.lr = lr
+        self.grow_function = grow_function
 
         self.non_rotated_cube = n_dim_cube(self.n_dim, epsilon, epsilon)
         
@@ -121,14 +130,16 @@ class Cluster():
         if(self.prev_n is None):
             composite_koef = np.power( self.lr  * (1 + 1/len(self.galaxies)),1/self.n_dim)
         else:
-            nu1 = len(self.galaxies)*1.0/self.get_volume()
-            nu2 = self.prev_n*1.0 / self.prev_v
-            composite_koef = np.clip(np.power( self.lr*(len(self.galaxies)*1.0/self.prev_n) * (1 + nu2/nu1) ,1/self.n_dim), 1, 2)
-            # composite_koef = np.clip(np.power( self.lr*(len(self.galaxies)*1.0/self.prev_n) * (1 + 1/len(self.galaxies)) ,1/self.n_dim), 1, 2)
-            # print(composite_koef)
+            if (self.grow_function == 'density'):
+                nu1 = len(self.galaxies)*1.0/self.get_volume()
+                nu2 = self.prev_n*1.0 / self.prev_v
+                composite_koef = np.clip(np.power( self.lr*(len(self.galaxies)*1.0/self.prev_n) * (1 + nu2/nu1) ,1/self.n_dim), 1, 2)
+            elif (self.grow_function == 'normal'):
+                composite_koef = np.clip(np.power( self.lr*(len(self.galaxies)*1.0/self.prev_n) * (1 + 1/len(self.galaxies)) ,1/self.n_dim), 1, 2)
+            else:
+                raise ValueError('Incorrect grow_function value')
         self.prev_n = None
         self.prev_v = None
-        # self.non_rotated_cube = self.non_rotated_cube*composite_koef
         self.non_rotated_cube[0] = self.non_rotated_cube[0]*composite_koef
         self.non_rotated_cube[1:,:] = self.non_rotated_cube[1:,:]*(1 + (composite_koef-1)/self.elongate_grow)        
         self.rotated_cube = self.rotate(self.centroid, self.non_rotated_cube)+self.centroid         
