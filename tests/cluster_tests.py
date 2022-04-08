@@ -32,6 +32,14 @@ class ClusterTestCase(unittest.TestCase):
         result = self.cluster.get_width()
         self.assertEqual(result, 0.5)
 
+    def test_grow_volume(self):
+        """Test grow volume"""
+
+        cluster = Cluster([0,0,0], epsilon=1)
+        cluster.grow()
+        result = cluster.get_volume()
+        self.assertEqual(result, 2)
+
 
 if __name__ == '__main__':
     unittest.main()
