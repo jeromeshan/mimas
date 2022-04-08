@@ -94,6 +94,9 @@ class Cluster():
         
     def rotate(self, vector, points):    
 
+        if(not np.any(vector)):
+            return points
+            
         x= array([1]+[0]*(self.n_dim-1))[np.newaxis, :].T
         y= array(vector)[np.newaxis, :].T
         y = y/np.linalg.norm(y)
