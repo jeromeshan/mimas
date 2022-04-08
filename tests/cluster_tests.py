@@ -20,7 +20,17 @@ class ClusterTestCase(unittest.TestCase):
         result = Cluster([0,0,0]).galaxies
         self.assertEqual(result.tolist()[0], [0,0,0])
 
+    def test_length(self):
+        """Test length"""
 
+        result = self.cluster.get_length()
+        self.assertEqual(result, 0.5)
+
+    def test_width(self):
+        """Test length"""
+
+        result = self.cluster.get_width()
+        self.assertEqual(result, 0.5)
 
 
 if __name__ == '__main__':

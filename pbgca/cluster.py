@@ -31,7 +31,6 @@ class Cluster():
     grow_limit = None
     new_galaxies_koef = None
     grow_function = None
-    n_dim = None
     elongate_grow = None
     prev_n = None
     prev_v = None
@@ -96,7 +95,7 @@ class Cluster():
 
         if(not np.any(vector)):
             return points
-            
+
         x= array([1]+[0]*(self.n_dim-1))[np.newaxis, :].T
         y= array(vector)[np.newaxis, :].T
         y = y/np.linalg.norm(y)
