@@ -3,3 +3,4 @@ pandas
 ray
 scipy
 plotly
+sklearn
