@@ -1,29 +1,28 @@
 from scipy.spatial import Delaunay
-from numpy import transpose, array, ndarray
+from numpy import array, ndarray
 import numpy as np
+from .cube_generator import CubeGenerator
 
-def n_dim_cube(n, init_length, init_width):
+class Cluster:
+    """ Class denife cluster for our clusterer.
+    Cluster can be defined by: center of cluster, points within a cluster and boundaries of cluster's region of space represented as number of coordinates of n-dim cuboid
 
-    unit = [[ -0.5, -0.5, 0.5, 0.5], [ -0.5, 0.5, 0.5, -0.5]]
+    Some example
+    docstring::
 
-    if n != 2:
-        for k in range(n-2):
-            l = len(unit[0])
-            for i in range(len(unit)):
-                unit[i] = unit[i]+unit[i]
-            unit.append( [-0.5]*l + [0.5]*l )
-    
-    for l in range(len(unit)):
-        if l == 0:
-            unit[l] = [element * init_length for element in unit[l]]
-        else:
-            unit[l] = [element * init_width for element in unit[l]]
+        from pbgca import Cluster
 
-    return transpose(array(unit))
+        cluster = Cluster([1,1],epsilon = 2)
+
+        cluster.get_length()# result 2
+
+        cluster.grow()# cluster's region of space expands. Coordinates of cuboid expands
+
+    Main methods here are :py:meth:`grow` and :py:meth:`__init__`
+    """
 
 
-class Cluster():
-    # non shifted shape, easy to expand
+
     non_rotated_cube = None
     rotated_cube = None# shifted coor of rotated cube
     centroid = None# coor of center
@@ -38,16 +37,42 @@ class Cluster():
     n_dim = 0
     times_grow = 0
     epsilon = 0
-    '''
-    center - coordinates of center of cluster (in case on sigle galaxy coordinates on galaxy)
-    non_rotated_cube - coordinates of non rotated parallelepiped that fits to cluster
-    galaxies - coordinates on galaxies
-    init_length - ration on longer part of parallelepiped to shorters
-    '''
+
+    # '''
+    # center - coordinates of center of cluster (in case on sigle galaxy coordinates on galaxy)
+    # non_rotated_cube - coordinates of non rotated parallelepiped that fits to cluster
+    # galaxies - coordinates on galaxies
+    # init_length - ration on longer part of parallelepiped to shorters
+    # '''
     def __init__(self, center, non_rotated_cube = None,
                 galaxies = None, epsilon = 0.5, n_dim = 3,
                 grow_limit = 5, prev_n = None, prev_v = None,
                 lr =1, elongate_grow = 1, grow_function = 'density'):
+        """Create instance of cluster
+
+        :param center: center of cluster
+        :type center: array
+        :param non_rotated_cube: coordinates of non rotated cube, defaults to None
+        :type non_rotated_cube: array, optional
+        :param galaxies: list of points in cluster, defaults to None
+        :type galaxies: array, optional
+        :param epsilon: epsilon, defaults to 0.5
+        :type epsilon: float, optional
+        :param n_dim: number of dimensions, defaults to 3
+        :type n_dim: int, optional
+        :param grow_limit: limit number of grow iterations, defaults to 5
+        :type grow_limit: int, optional
+        :param prev_n: max size of previous clusters that merge into current (by number of points), defaults to None
+        :type prev_n: int, optional
+        :param prev_v: density of max size of previous cluster that merge into current , defaults to None
+        :type prev_v: float, optional
+        :param lr: learning rate, defaults to 1
+        :type lr: float, optional
+        :param elongate_grow: elongation factor, defaults to 1
+        :type elongate_grow: float, optional
+        :param grow_function: type of grow function, defaults to 'density'
+        :type grow_function: 'density' or 'normal', optional
+        """
         
         self.was_complete = False
         
@@ -59,7 +84,7 @@ class Cluster():
         self.lr = lr
         self.grow_function = grow_function
 
-        self.non_rotated_cube = n_dim_cube(self.n_dim, epsilon, epsilon)
+        self.non_rotated_cube = CubeGenerator.n_dim_cube(self.n_dim, epsilon, epsilon)
         
         if(isinstance(non_rotated_cube, ndarray)):
             self.non_rotated_cube = non_rotated_cube
@@ -76,15 +101,30 @@ class Cluster():
                 raise ValueError
         
     def get_length(self):
+        """Get length of cluster
+
+        :return: length of cluster
+        :rtype: float
+        """
         length  =  self.non_rotated_cube[2, 0] - self.non_rotated_cube[0, 0]
         return length
 
 
     def get_width(self):
+        """Get width of cluster
+
+        :return: width of cluster
+        :rtype: float
+        """
         width =  self.non_rotated_cube[1, 1] - self.non_rotated_cube[0, 0]
         return width
 
     def get_volume(self):
+        """Get volume of cluster
+
+        :return: volume of cluster
+        :rtype: float
+        """
         volume = self.get_length()
         for i in range(self.n_dim-1):
             volume*=self.get_width()
@@ -92,7 +132,15 @@ class Cluster():
 
         
     def rotate(self, vector, points):    
+        """Rotate cluster to facing centain direction
 
+        :param vector: direction vector
+        :type vector: array
+        :param points: points of cube
+        :type points: array
+        :return: rotated points of cube
+        :rtype: array
+        """
         if(not np.any(vector)):
             return points
 
@@ -116,13 +164,25 @@ class Cluster():
         return array(rotmat)
 
     def isComplete(self):
+        """If cluster stops growth
+
+        :return: if cluster stops growth
+        :rtype: bool
+        """
         return self.times_grow == self.grow_limit
 
     def isWasComplete(self):
+        """If cluster stops growth more than step ago
+
+        :return: if cluster stops growth more than step ago
+        :rtype: bool
+        """
         return self.was_complete
 
 
     def grow(self):
+        """Grow of cluster
+        """
         if(self.isComplete()):
             
             self.was_complete = True

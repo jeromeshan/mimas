@@ -1,4 +1,3 @@
-import re
 from typing import List
 import ray
 from scipy.sparse import csr_matrix
@@ -9,109 +8,43 @@ import time
 from numpy import transpose, array, arange, concatenate, eye, unique, dot, zeros, append, ones
 import numpy as np
 from numpy.linalg import norm
-from .cluster import Cluster, n_dim_cube
+from .cluster import Cluster
+from .cube_generator import CubeGenerator
+from .connectivity_matrix import ConnectivityMatrix
 from scipy.spatial import distance
-
-class ConnectivityMatrix:
-    def __init__(self, clusters:List[Cluster],epsilon,limit_radian,n_dim,parallel):
-
-        self.data = []
-        self.epsilon = epsilon
-        self.limit_radian = limit_radian
-        self.parallel = parallel
-        for cluster in clusters:
-            self.data.append([cluster.centroid.reshape(1,-1),#0
-            len(cluster.galaxies),#1
-            cluster.get_length(),#2
-            cluster.rotated_cube,#3
-            cluster.galaxies[:,:n_dim],
-            cluster.isWasComplete()
-            ])
-        self.data = np.array(self.data,dtype=object)
-    
-    def split_array(self, a, n):
-        k, m = divmod(len(a), n)
-        return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
-
-    def get_matrix(self):
-        if self.parallel:
-            data = ray.put(self.data)
-            graph = ray.get([self.parallel_connectivity_matrix.remote(self, data, subset) for subset in self.split_array(arange(len(self.data)), 64)])
-            graph = concatenate( graph, axis = 0 )
-        else:
-            graph = self.connectivity_matrix(self.data, arange(len(self.data)))
-
-        graph = graph+transpose(graph)
-        graph = graph-eye(len(self.data))
-        return graph
-
-
-    def connectivity_matrix(self, data , rows):
-        new_graph = zeros((len(rows), len(data)))
-        for i in range(len(rows)):
-            for j in range(rows[i], len(data)):
-
-                if(rows[i] == j):
-                    new_graph[i, j] = 1
-                    continue
-
-                halfsum_len = (data[rows[i],2]+data[j,2])/2
-                centroid_i = data[rows[i],0]
-                centroid_j = data[j,0]
-                n_dim = len(centroid_i)
-                cube_i = data[rows[i],3]
-                cube_j = data[j,3]
-                p_i = data[rows[i],4]
-                p_j = data[j,4]
-                
-                if(data[rows[i],5] and data[j,5]):
-                    continue
-                
-                if((data[rows[i],1]==1) and (data[j,1]==1)):
-                    if(cdist(centroid_i,centroid_j,'euclidean')<self.epsilon):
-                        new_graph[i, j] = 1
-                    continue
-
-                centroids_diff =centroid_i[0]-centroid_j[0]
-                dim_level_check = True
-                for k in range(n_dim):
-                    if(halfsum_len<np.abs(centroids_diff[k])):
-                        dim_level_check = False
-                        continue
-                if(not dim_level_check):
-                    continue
-
-
-                if(np.arccos(1- cdist(centroid_i,centroid_j,'cosine')) > self.limit_radian):
-                    continue
- 
-                if(distance.cdist(p_i,p_j).min()>10*self.epsilon):
-                    continue
-
-                if(self.check_collision(cube_i,p_j)):
-                    new_graph[i, j] = 1
-                elif(self.check_collision(cube_j, p_i)):
-                    new_graph[i, j] = 1
-        return new_graph
-
-    @ray.remote
-    def parallel_connectivity_matrix(self, data, rows):
-        return self.connectivity_matrix(data, rows)
-        
-    def check_collision(self, cube, p):
-        delaunay = Delaunay(cube)
-        for gal in p:
-            if(delaunay.find_simplex(gal) >= 0):
-                return True
-        return False
-
     
 
 class Clusterer:
+    """Main clusterer class
+
+    TODO: Short defenition of algorithm
+
+    """
 
     def __init__(self, epsilon = 0.5, lr = 1, max_iter = 30,
                 limit_radian = 0.01, grow_limit = 3, elongate_grow = 1,
                 grow_function = 'density', min_diff = 1, parallel = False):
+        """Create instance of clusterer
+
+        :param epsilon: epsilon, defaults to 0.5
+        :type epsilon: float, optional
+        :param lr: learning rate, defaults to 1
+        :type lr: int, optional
+        :param max_iter: max number of interations, defaults to 30
+        :type max_iter: int, optional
+        :param limit_radian: limit radian distance between clusters, defaults to 0.01
+        :type limit_radian: float, optional
+        :param grow_limit: limit number of grow iterations, defaults to 3
+        :type grow_limit: int, optional
+        :param elongate_grow: elongation factor, defaults to 1
+        :type elongate_grow: float, optional
+        :param grow_function: type of grow function, defaults to 'density'
+        :type grow_function: 'density' or 'normal', optional
+        :param min_diff: min diff in number of clusters between steps, defaults to 1
+        :type min_diff: int, optional
+        :param parallel: use parallel computing via ray, defaults to False
+        :type parallel: bool, optional
+        """
         self.clusters = []
         self.epsilon = epsilon
         self.lr = lr
@@ -124,6 +57,9 @@ class Clusterer:
         self.parallel = parallel
  
     def merge(self):
+        """
+        Use ConnectivityMatrix to compute connectivity matrix and find connected components to merge them then
+        """
 
         matrix_gen = ConnectivityMatrix(self.clusters,self.epsilon,self.limit_radian,self.n_dim,self.parallel)
         graph = matrix_gen.get_matrix()     
@@ -141,6 +77,13 @@ class Clusterer:
         self.clusters = new_clusters        
  
     def collide_clusters(self, clusters:List[Cluster]):
+        """Merge list of intersected clusters together
+
+        :param clusters: List of clusters
+        :type clusters: List[Cluster]
+        :return: merged cluster
+        :rtype: Cluster
+        """
  
         if(len(clusters) == 1):
             return clusters[0]
@@ -162,12 +105,18 @@ class Clusterer:
         length = distances_on_line.max()
         width = norm(vectors_from_line, axis = 1).max()
 
-        cube = n_dim_cube(self.n_dim, length*2+self.epsilon/2, width*2+self.epsilon/2)
+        cube = CubeGenerator.n_dim_cube(self.n_dim, length*2+self.epsilon/2, width*2+self.epsilon/2)
  
         return Cluster(center, cube, galaxies,  n_dim = self.n_dim, prev_n= len(max_prev_cluster.galaxies),prev_v=max_prev_cluster.get_volume(), grow_limit = self.grow_limit, lr = self.lr, elongate_grow = self.elongate_grow, grow_function=self.grow_function)
  
     def compress_cluster(self, cluster):
- 
+        """Compress clusters to minimal size. Calls in the last step of algoritm to level out grow effect
+
+        :param cluster: cluster
+        :type cluster: Cluster
+        :return: Compressed cluster
+        :rtype: Cluster
+        """
         galaxies = cluster.galaxies
         if(galaxies.ndim == 1 ):
             galaxies = array([galaxies])
@@ -182,12 +131,16 @@ class Clusterer:
         length = distances_on_line.max()
         width = norm(vectors_from_line, axis = 1).max()
  
-        cube = n_dim_cube(self.n_dim, length*2+self.epsilon/10, width*2+self.epsilon/10)
+        cube = CubeGenerator.n_dim_cube(self.n_dim, length*2+self.epsilon/10, width*2+self.epsilon/10)
         
         return Cluster(center, cube, galaxies, n_dim = self.n_dim)
  
     def step(self):
- 
+        """One step of algoritm. Grow and then merge all clusters
+
+        :return: is last step
+        :rtype: bool
+        """
         # start = time.time()
         is_done = True
         for cluster in self.clusters:
@@ -213,14 +166,16 @@ class Clusterer:
         # print('s\t','merge time: ', time.time()-start, ' s')
 
         return True
-
-    def split_array(self, a, n):
-        k, m = divmod(len(a), n)
-        return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
  
 
     def fit(self, data):
+        """Fit method of algoritm. Launch all other steps
 
+        :param data: data for clustering
+        :type data: array
+        :return: labels of points
+        :rtype: array
+        """
         if(self.parallel):
             if ray.is_initialized():
                 ray.shutdown()
