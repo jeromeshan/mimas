@@ -5,6 +5,9 @@ mimaslib/__pychache__/
 tests/__pychache__/
 .vscode
 stuff/
+docs/_build
+docs/_static
+docs/_templates
 
 *.csv
 *.html
