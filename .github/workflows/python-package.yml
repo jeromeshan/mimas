@@ -40,4 +40,4 @@ jobs:
       run: |
         pip install pytest-cython
         pip install anyio
-        pytest -v tests
+        python -m pytest -v tests/
