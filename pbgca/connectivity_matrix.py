@@ -5,8 +5,11 @@ from scipy.spatial import Delaunay
 from numpy import transpose, arange, concatenate, eye
 import numpy as np
 import time
+import pyximport
+pyximport.install(setup_args={"include_dirs":np.get_include()},
+                  reload_support=True)
 from .cm_python import connectivity_matrix_python
-from cm_cython import connectivity_matrix_cython
+from .cm_cython import connectivity_matrix_cython
 from joblib import Parallel, delayed, cpu_count
 
 
