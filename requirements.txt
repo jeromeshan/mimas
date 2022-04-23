@@ -4,3 +4,5 @@ ray
 scipy
 plotly
 sklearn
+pytest-cython
+cython

@@ -41,7 +41,7 @@ setup(
         "Operating System :: OS Independent"
     ],
     include_package_data=True,
-    install_requires=["numpy","pandas","ray","scipy","plotly","sklearn"],
+    install_requires=["numpy","pandas","ray","scipy","plotly","sklearn","pytest-cython","cython"],
     ext_modules=[
         Extension(
             'pbgca.cm__cython',
