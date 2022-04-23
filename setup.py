@@ -18,7 +18,7 @@ with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
 setup(
     name='pbgca',
     packages=find_packages(include=['pbgca']),
-    version='0.1.1',
+    version='0.1.2',
     setup_requires=['pytest-runner'],
     tests_require=['pytest==4.4.1'],
     test_suite='tests',
