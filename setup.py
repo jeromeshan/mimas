@@ -1,9 +1,11 @@
 # Always prefer setuptools over distutils
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages,  Extension
 
 # To use a consistent encoding
 from codecs import open
 from os import path
+
+import numpy
 
 # The directory containing this file
 HERE = path.abspath(path.dirname(__file__))
@@ -12,10 +14,11 @@ HERE = path.abspath(path.dirname(__file__))
 with open(path.join(HERE, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
     
+
 setup(
     name='pbgca',
     packages=find_packages(include=['pbgca']),
-    version='0.1.1',
+    version='0.1.2',
     setup_requires=['pytest-runner'],
     tests_require=['pytest==4.4.1'],
     test_suite='tests',
@@ -38,5 +41,12 @@ setup(
         "Operating System :: OS Independent"
     ],
     include_package_data=True,
-    install_requires=["numpy","pandas","ray","scipy","plotly","sklearn"]
+    install_requires=["numpy","pandas","ray","scipy","plotly","sklearn","pytest-cython","cython"],
+    ext_modules=[
+        Extension(
+            'pbgca.cm__cython',
+            sources=['pbgca/cm_cython.pyx'],
+        ),
+    ],
+    include_dirs=[numpy.get_include()]
 )

@@ -23,7 +23,7 @@ class Clusterer:
 
     def __init__(self, epsilon = 0.5, lr = 1, max_iter = 30,
                 limit_radian = 0.01, grow_limit = 3, elongate_grow = 1,
-                grow_function = 'density', min_diff = 1, parallel = False):
+                grow_function = 'density', min_diff = 1,cython = False ,parallel = 'none'):
         """Create instance of clusterer
 
         :param epsilon: epsilon, defaults to 0.5
@@ -42,8 +42,10 @@ class Clusterer:
         :type grow_function: 'density' or 'normal', optional
         :param min_diff: min diff in number of clusters between steps, defaults to 1
         :type min_diff: int, optional
-        :param parallel: use parallel computing via ray, defaults to False
-        :type parallel: bool, optional
+        :param cython: use cython computing , defaults to False
+        :type cython: bool, optional
+        :param parallel: use parallel computing , defaults to 'none'
+        :type parallel: string (none, ray, joblib), optional
         """
         self.clusters = []
         self.epsilon = epsilon
@@ -55,13 +57,15 @@ class Clusterer:
         self.grow_function = grow_function
         self.min_diff = min_diff
         self.parallel = parallel
+        self.cython = cython
+
  
     def merge(self):
         """
         Use ConnectivityMatrix to compute connectivity matrix and find connected components to merge them then
         """
 
-        matrix_gen = ConnectivityMatrix(self.clusters,self.epsilon,self.limit_radian,self.n_dim,self.parallel)
+        matrix_gen = ConnectivityMatrix(self.clusters,self.epsilon,self.limit_radian,self.n_dim,self.cython,self.parallel)
         graph = matrix_gen.get_matrix()     
 
         graph = graph+transpose(graph)
@@ -144,6 +148,7 @@ class Clusterer:
         # start = time.time()
         is_done = True
         for cluster in self.clusters:
+
             if(not cluster.isComplete()):
                 is_done = False
                 break
@@ -176,7 +181,7 @@ class Clusterer:
         :return: labels of points
         :rtype: array
         """
-        if(self.parallel):
+        if(self.parallel == 'ray'):
             if ray.is_initialized():
                 ray.shutdown()
             ray.init()
@@ -207,7 +212,7 @@ class Clusterer:
         galaxies = concatenate(galaxies)
         galaxies = galaxies[galaxies[:, self.n_dim].argsort()]  
 
-        if(self.parallel):
+        if(self.parallel == 'ray'):
             ray.shutdown()
         
         self.labels_ = galaxies[:, -1]

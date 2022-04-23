@@ -2,13 +2,12 @@ from .cluster import Cluster
 from typing import List
 import ray
 from scipy.spatial import Delaunay
-from numpy import transpose, array, arange, concatenate, eye, unique, dot, zeros, append, ones
+from numpy import transpose, arange, concatenate, eye
 import numpy as np
-from numpy.linalg import norm
-from scipy.spatial import distance
-from scipy.spatial.distance import cdist
-
-
+import time
+from .cm_python import connectivity_matrix_python
+from cm_cython import connectivity_matrix_cython
+from joblib import Parallel, delayed, cpu_count
 
 
 class ConnectivityMatrix:
@@ -16,7 +15,7 @@ class ConnectivityMatrix:
     Compute connectivity matrix between clusters
     """
 
-    def __init__(self, clusters:List[Cluster],epsilon,limit_radian,n_dim,parallel):
+    def __init__(self, clusters:List[Cluster],epsilon,limit_radian,n_dim,cython,parallel):
         """Create instance of ConnectivityMatrix class. Extract all necessary data from clusters and into array
 
         :param clusters: List of Clusters
@@ -27,14 +26,19 @@ class ConnectivityMatrix:
         :type limit_radian: int
         :param n_dim: number of dimensions
         :type n_dim: int
-        :param parallel: use parallel computing via ray
+        :param parallel: use cython implementation 
         :type parallel: bool
+        :param parallel: use parallel computing 
+        :type parallel: string (joblib or ray)
         """
 
+        # start = time.time()
         self.data = []
         self.epsilon = epsilon
         self.limit_radian = limit_radian
         self.parallel = parallel
+        self.cython = cython
+
         for cluster in clusters:
             self.data.append([cluster.centroid.reshape(1,-1),#0
             len(cluster.galaxies),#1
@@ -44,6 +48,10 @@ class ConnectivityMatrix:
             cluster.isWasComplete()
             ])
         self.data = np.array(self.data,dtype=object)
+
+        np.save('cm2.npy',self.data)
+        # print('\t\t','read data time: ', time.time()-start, ' s')
+
     
     def split_array(self, a, n):
         """Utility method. Splits array into n equal parts
@@ -64,100 +72,68 @@ class ConnectivityMatrix:
         :return: Connectivity matrix
         :rtype: array
         """
-        if self.parallel:
-            data = ray.put(self.data)
-            graph = ray.get([self.parallel_connectivity_matrix.remote(self, data, subset) for subset in self.split_array(arange(len(self.data)), 64)])
+        if self.parallel == 'ray':
+            ray.init()
+            data = ray.put(self.data) 
+            graph = ray.get([self.parallel_connectivity_matrix.remote(self, data, subset,self.epsilon,self.limit_radian,self.cython) for subset in self.split_array(arange(len(self.data)).astype(int), 64)])
+            graph = concatenate( graph, axis = 0 )
+            ray.shutdown()
+            
+        elif self.parallel == 'joblib':
+
+            graph = Parallel(n_jobs = (-1))(delayed(self.connectivity_matrix)(self.data,subset,self.epsilon,self.limit_radian,self.cython) for subset in self.split_array(arange(len(self.data)).astype(int), 64))
             graph = concatenate( graph, axis = 0 )
         else:
-            graph = self.connectivity_matrix(self.data, arange(len(self.data)))
-
+            graph = self.connectivity_matrix(self.data,arange(len(self.data)).astype(int),self.epsilon,self.limit_radian,self.cython)
+    
         graph = graph+transpose(graph)
         graph = graph-eye(len(self.data))
         return graph
 
 
-    def connectivity_matrix(self, data , rows):
+
+    def connectivity_matrix(self, data , rows, epsilon,limit_radian, cython):
         """Utility method for connectivity matrix. Compute part of matrix
 
         :param data: data of clusters
         :type data: array
         :param rows: rows to compute
         :type rows: array
+        :param epsilon: epsilon
+        :type epsilon: float
+        :param limit_radian: limit radian
+        :type limit_radian: float
+        :param cython: if using cython
+        :type cython: bool
         :return: part of connectivity matrix
         :rtype: array
         """
-        new_graph = zeros((len(rows), len(data)))
-        for i in range(len(rows)):
-            for j in range(rows[i], len(data)):
+        if(cython):
+            cm =  connectivity_matrix_cython(data,rows,self.epsilon,self.limit_radian)
+            return cm
+        else:
+            cm = connectivity_matrix_python(data,rows,self.epsilon,self.limit_radian)
+            return cm
 
-                if(rows[i] == j):
-                    new_graph[i, j] = 1
-                    continue
-
-                halfsum_len = (data[rows[i],2]+data[j,2])/2
-                centroid_i = data[rows[i],0]
-                centroid_j = data[j,0]
-                n_dim = len(centroid_i)
-                cube_i = data[rows[i],3]
-                cube_j = data[j,3]
-                p_i = data[rows[i],4]
-                p_j = data[j,4]
-                
-                if(data[rows[i],5] and data[j,5]):
-                    continue
-                
-                if((data[rows[i],1]==1) and (data[j,1]==1)):
-                    if(cdist(centroid_i,centroid_j,'euclidean')<self.epsilon):
-                        new_graph[i, j] = 1
-                    continue
-
-                centroids_diff =centroid_i[0]-centroid_j[0]
-                dim_level_check = True
-                for k in range(n_dim):
-                    if(halfsum_len<np.abs(centroids_diff[k])):
-                        dim_level_check = False
-                        continue
-                if(not dim_level_check):
-                    continue
-
-
-                if(np.arccos(1- cdist(centroid_i,centroid_j,'cosine')) > self.limit_radian):
-                    continue
- 
-                if(distance.cdist(p_i,p_j).min()>10*self.epsilon):
-                    continue
-
-                if(self.check_collision(cube_i,p_j)):
-                    new_graph[i, j] = 1
-                elif(self.check_collision(cube_j, p_i)):
-                    new_graph[i, j] = 1
-        return new_graph
 
     @ray.remote
-    def parallel_connectivity_matrix(self, data, rows):
+    def parallel_connectivity_matrix(self, data, rows,epsilon,limit_radian,cython):
         """Utility method for connectivity matrix. Compute part of matrix in parallel using ray
+
 
         :param data: data of clusters
         :type data: array
         :param rows: rows to compute
         :type rows: array
-        :return: part of connectivity matrix
+        :param epsilon: epsilon
+        :type epsilon: float
+        :param limit_radian: limit radian
+        :type limit_radian: float
+        :param cython: if using cython
+        :type cython: bool
+        :return: connectivity matrix
         :rtype: array
         """
-        return self.connectivity_matrix(data, rows)
-        
-    def check_collision(self, cube, p):
-        """Check colision of regions of space of clusters
+        return self.connectivity_matrix(data, rows,epsilon,limit_radian,cython)
 
-        :param cube: region of space of cluster in form of coordinates
-        :type cube: array
-        :param p: points to check
-        :type p: array
-        :return: if ``p`` have points inside ``cube``
-        :rtype: bool
-        """
-        delaunay = Delaunay(cube)
-        for gal in p:
-            if(delaunay.find_simplex(gal) >= 0):
-                return True
-        return False
+

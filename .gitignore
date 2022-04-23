@@ -5,6 +5,7 @@ mimaslib/__pychache__/
 tests/__pychache__/
 .vscode
 stuff/
+validation/
 docs/_build
 docs/_static
 docs/_templates
