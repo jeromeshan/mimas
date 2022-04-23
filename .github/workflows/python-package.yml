@@ -39,4 +39,5 @@ jobs:
     - name: Test with pytest
       run: |
         pip install pytest-cython
+        pip install anyio
         pytest -v tests
